@@ -841,9 +841,9 @@ func (container *Container) Unmount() error {
 		return fmt.Errorf("Can't unmount %v", container.RootfsPath())	
 	}
 
-	for i := len(layers) - 1; i >= 0; i-- {
-		if err := Unmount(layers[i]); err != nil {
-			return fmt.Errorf("Can't unmount %v", layers[i])
+	for _, layer := range layers {
+		if err := Unmount(layer); err != nil {
+			return fmt.Errorf("Can't unmount %v", layer)
 		}
 	}
 

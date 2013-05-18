@@ -128,8 +128,11 @@ func MountOverlayfs(ro []string, rw string, target string) error {
 	//          ----
 	//          D as lowerdir, RW as upperdir on TARGET
 	//
-	prevLayer := ro[0]
-	for _, layer := range ro[1:] {
+	// The layers are in reverse, greater index is lower
+	// on the stack (rw is on top)
+	prevLayer := ro[len(ro) - 1]
+	for i := len(ro) - 2; i >= 0; i-- {
+		layer := ro[i]
 		options := fmt.Sprintf("lowerdir=%v,upperdir=%v", prevLayer, layer)
 		if err := mount("overlayfs", layer, "overlayfs", syscall.MS_RDONLY, options); err != nil {
 			return fmt.Errorf("Unable to mount %v on %v using overlayfs (ro)", prevLayer, layer)
