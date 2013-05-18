@@ -826,7 +826,28 @@ func (container *Container) Mounted() (bool, error) {
 }
 
 func (container *Container) Unmount() error {
-	return Unmount(container.RootfsPath())
+
+	image, err := container.GetImage()
+	if err != nil {
+		return err
+	}
+
+	layers, err := image.layers()
+	if err != nil {
+		return 	err
+	}
+
+	if err := Unmount(container.RootfsPath()); err != nil {
+		return fmt.Errorf("Can't unmount %v", container.RootfsPath())	
+	}
+
+	for i := len(layers) - 1; i >= 0; i-- {
+		if err := Unmount(layers[i]); err != nil {
+			return fmt.Errorf("Can't unmount %v", layers[i])
+		}
+	}
+
+	return nil
 }
 
 // ShortId returns a shorthand version of the container's id for convenience.

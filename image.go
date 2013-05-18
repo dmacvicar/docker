@@ -9,9 +9,10 @@ import (
 	"github.com/dotcloud/docker/utils"
 	"io"
 	"io/ioutil"
-	"log"
+	//"log"
 	"os"
-	"os/exec"
+	//"os/exec"
+	"syscall"
 	"path"
 	"strings"
 	"time"
@@ -117,26 +118,45 @@ func jsonPath(root string) string {
 	return path.Join(root, "json")
 }
 
-func MountAUFS(ro []string, rw string, target string) error {
-	// FIXME: Now mount the layers
-	rwBranch := fmt.Sprintf("%v=rw", rw)
-	roBranches := ""
-	for _, layer := range ro {
-		roBranches += fmt.Sprintf("%v=ro+wh:", layer)
+func MountOverlayfs(ro []string, rw string, target string) error {
+	//
+	// unlike aufs, you can't mount several branches with
+	// overlayfs, so we do recursive mounts
+	// for the ro layers (A, B, C, D) and RW and TARGET
+	// we mount A as lowerdir, B as upperdir on B
+	//          B as lowerdir, C as upperdir on C
+	//          ----
+	//          D as lowerdir, RW as upperdir on TARGET
+	//
+	prevLayer := ro[0]
+	for _, layer := range ro[1:] {
+		options := fmt.Sprintf("lowerdir=%v,upperdir=%v", prevLayer, layer)
+		if err := mount("overlayfs", layer, "overlayfs", syscall.MS_RDONLY, options); err != nil {
+			return fmt.Errorf("Unable to mount %v on %v using overlayfs (ro)", prevLayer, layer)
+	    }
+	    utils.Debugf("MountOverlayfs %v/%v -> %v", prevLayer, layer, layer)
+	    prevLayer = layer
 	}
-	branches := fmt.Sprintf("br:%v:%v", rwBranch, roBranches)
+
+	options := fmt.Sprintf("lowerdir=%v,upperdir=%v", prevLayer, rw)
+	if err := mount("overlayfs", target, "overlayfs", 0, options); err != nil {
+		return fmt.Errorf("Unable to mount %v on %v using overlayfs", prevLayer, target)
+	}
+	utils.Debugf("MountOverlayfs %v/%v -> %v", prevLayer, rw, target)
 
 	//if error, try to load aufs kernel module
-	if err := mount("none", target, "aufs", 0, branches); err != nil {
-		log.Printf("Kernel does not support AUFS, trying to load the AUFS module with modprobe...")
-		if err := exec.Command("modprobe", "aufs").Run(); err != nil {
+	/*
+	if err := mount("none", target, "overlayfs", 0, branches); err != nil {
+		log.Printf("Kernel does not support overlayfs, trying to load the overlayfs module with modprobe...")
+		if err := exec.Command("modprobe", "overlayfs").Run(); err != nil {
 			return fmt.Errorf("Unable to load the AUFS module")
 		}
 		log.Printf("...module loaded.")
 		if err := mount("none", target, "aufs", 0, branches); err != nil {
-			return fmt.Errorf("Unable to mount using aufs")
+			return fmt.Errorf("Unable to mount using overlayfs")
 		}
 	}
+	*/
 	return nil
 }
 
@@ -166,7 +186,7 @@ func (image *Image) Mount(root, rw string) error {
 	if err := os.Mkdir(rw, 0755); err != nil && !os.IsExist(err) {
 		return err
 	}
-	if err := MountAUFS(layers, rw, root); err != nil {
+	if err := MountOverlayfs(layers, rw, root); err != nil {
 		return err
 	}
 	return nil
